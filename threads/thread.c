@@ -329,6 +329,7 @@ void thread_exit(void)
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable();
 	do_schedule(THREAD_DYING);
+	palloc_free_page(thread_current());
 	NOT_REACHED();
 }
 

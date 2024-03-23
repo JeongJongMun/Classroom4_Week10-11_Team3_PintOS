@@ -61,8 +61,10 @@ tid_t process_create_initd (const char *file_name) {
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	sema_down(&main_thread->load_sema);
-	if (tid == TID_ERROR)
-		palloc_free_page (fn_copy);
+	if (tid == TID_ERROR) {
+		palloc_free_page(fn_copy);
+		palloc_free_page(file_name);
+	}
 	return tid;
 }
 
@@ -92,7 +94,6 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
 
 	// 현재 스레드를 새 스레드로 복제
 	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);
-	if (tid == TID_ERROR)
 		return TID_ERROR;
 
 	struct thread *child = get_child_process(tid);
@@ -197,6 +198,9 @@ __do_fork (void *aux) {
 		}
 		idx++;
 	}
+	if (idx == FDT_SIZE) {
+		goto error;
+	}
 	if_.R.rax = 0; // 자식 프로세스의 반환 값은 0
 	sema_up(&current->load_sema);
 	process_init();
@@ -280,6 +284,13 @@ int process_wait (tid_t child_tid) {
 void process_exit (void) {
 	struct thread *t = thread_current();
 
+	for (int i = 2; i < FDT_SIZE; i++) {
+		if (t->fdt[i] != NULL) {
+			file_close(t->fdt[i]);
+		}
+	}
+
+	palloc_free_multiple(t->fdt, FDT_SIZE);
 	file_close(t->self_file);
 	process_cleanup ();
 	sema_up(&t->wait_sema);
