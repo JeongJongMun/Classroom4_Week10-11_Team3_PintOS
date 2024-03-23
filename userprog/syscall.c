@@ -261,7 +261,7 @@ int open(const char *file) {
 	int fd = add_file_to_fdt(file_open);
 	if (fd == -1) {
 		file_close(file_open);
-		palloc_free_page(file_open);
+		// palloc_free_page(file_open);
 	}
 	lock_release(&filesys_lock);
 	return fd;

@@ -63,7 +63,7 @@ tid_t process_create_initd (const char *file_name) {
 	sema_down(&main_thread->load_sema);
 	if (tid == TID_ERROR) {
 		palloc_free_page(fn_copy);
-		palloc_free_page(file_name);
+		// palloc_free_page(file_name);
 	}
 	return tid;
 }
@@ -94,6 +94,7 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
 
 	// 현재 스레드를 새 스레드로 복제
 	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);
+	if (tid == TID_ERROR)
 		return TID_ERROR;
 
 	struct thread *child = get_child_process(tid);
@@ -198,9 +199,9 @@ __do_fork (void *aux) {
 		}
 		idx++;
 	}
-	if (idx == FDT_SIZE) {
-		goto error;
-	}
+	// if (idx == FDT_SIZE) {
+	// 	goto error;
+	// }
 	if_.R.rax = 0; // 자식 프로세스의 반환 값은 0
 	sema_up(&current->load_sema);
 	process_init();
@@ -290,7 +291,7 @@ void process_exit (void) {
 		}
 	}
 
-	palloc_free_multiple(t->fdt, FDT_SIZE);
+	// palloc_free_multiple(t->fdt, FDT_PAGES);
 	file_close(t->self_file);
 	process_cleanup ();
 	sema_up(&t->wait_sema);
