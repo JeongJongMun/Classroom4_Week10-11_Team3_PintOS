@@ -51,19 +51,19 @@ tid_t process_create_initd (const char *file_name) {
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
+	if (fn_copy == NULL) {
 		return TID_ERROR;
+	}
 	strlcpy (fn_copy, file_name, PGSIZE);
 
-	/* Project 2: COmmand Line Parsing */
+	/* Project 2: Command Line Parsing */
 	char *save_ptr;
 	strtok_r(file_name, " ",  &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	sema_down(&main_thread->load_sema);
 	if (tid == TID_ERROR) {
-		palloc_free_page(fn_copy);
-		// palloc_free_page(file_name);
+		palloc_free_page(fn_copy);	
 	}
 	return tid;
 }
@@ -94,12 +94,10 @@ tid_t process_fork(const char *name, struct intr_frame *if_) {
 
 	// 현재 스레드를 새 스레드로 복제
 	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);
-	if (tid == TID_ERROR)
-		return TID_ERROR;
-
 	struct thread *child = get_child_process(tid);
-	if (child == NULL)
+	if (child == NULL) {
 		return TID_ERROR;
+	}
 
 	sema_down(&child->load_sema);
 	return tid;
@@ -116,38 +114,29 @@ static bool duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	void *newpage;
 	bool writable;
 
-	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-	/* 부모 페이지가 커널 페이지인 경우 즉시 반환합니다. */
+	/* 1. parent_page가 커널 페이지인 경우 즉시 반환한다. */
 	if (is_kernel_vaddr (va))
 		return true;
 
-	/* 2. Resolve VA from the parent's page map level 4. */
-	/* 부모의 페이지 맵 레벨 4에서 VA를 해결합니다.*/
+	/* 2. 부모의 페이지 맵 레벨 4에서 va를 해결한다. */
 	parent_page = pml4_get_page (parent->pml4, va);
 	if(parent_page == NULL){
 		return false;
 	}
 
-	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
-	 *    TODO: NEWPAGE. */
-	/* 해석: 자식을 위해 새로운 PAL_USER 페이지를 할당하고 결과를 NEWPAGE에 설정합니다.*/
+	/* 3. 자식을 위해 새로운 PAL_USER 페이지를 할당하고 NEWPAGE에 결과를 설정한다. */
 	newpage = palloc_get_page (PAL_USER);
 	if(newpage == NULL){
 		return false;
 	}
-	/* 4. TODO: Duplicate parent's page to the new page and
-	 *    TODO: check whether parent's page is writable or not (set WRITABLE
-	 *    TODO: according to the result). */
-	/* 해석: 부모의 페이지를 새 페이지로 복제하고 부모의 페이지가 쓰기 가능한지 여부를 확인하십시오 (결과에 따라 WRITABLE을 설정하십시오). */
+	/* 4. 부모 페이지를 새 페이지에 복제하고 부모 페이지가 쓰기 가능한지 여부를 확인한다.(결과에 따라 writable을 설정한다.) */
 	memcpy (newpage, parent_page, PGSIZE);
 	writable = is_writable (pte);
 
-	/* 5. Add new page to child's page table at address VA with WRITABLE permission. */
-	/* 해석: 새 페이지를 VA 주소에 WRITABLE 권한으로 자식의 페이지 테이블에 추가하십시오. */
-
+	/* 5. 새 페이지를 VA 주소에 WRITABLE 권한으로 자식의 페이지 테이블에 추가한다. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
-		/* 6. TODO: if fail to insert page, do error handling. */
-		/* 해석: 페이지 삽입에 실패하면 오류 처리를 수행하십시오. */
+		/* 6. 페이지 삽입에 실패하면, 에러를 처리한다. */
+		palloc_free_page(newpage);
 		return false;
 	}
 	return true;
@@ -185,23 +174,17 @@ __do_fork (void *aux) {
 	}
 #endif
 
-	/* TODO: Your code goes here.
-	 * 파일 객체를 복제하려면 include/filesys/file.h의 file_duplicate를 사용하십시오.
-	 * 이 함수가 부모의 자원을 성공적으로 복제할 때까지 
-	 * 부모는 fork()에서 반환되지 않아야 한다.
+	/* 부모의 파일 디스크립터 테이블을 복사한다. 
+	 * 이 함수가 부모의 자원을 성공적으로 복제할 때까지 부모는 fork()에서 반환되지 않아야 한다.
 	 */
-	int idx = 2;
 	current->fdt[0] = parent->fdt[0];
 	current->fdt[1] = parent->fdt[1];
-	while (idx < FDT_SIZE) {
-		if (parent->fdt[idx] != NULL) {
-			current->fdt[idx] = file_duplicate(parent->fdt[idx]);
+	for (int idx = 2; idx < FDT_SIZE; idx++) {
+		struct file *f = parent->fdt[idx];
+		if (f != NULL) {
+			current->fdt[idx] = file_duplicate(f);
 		}
-		idx++;
 	}
-	// if (idx == FDT_SIZE) {
-	// 	goto error;
-	// }
 	if_.R.rax = 0; // 자식 프로세스의 반환 값은 0
 	sema_up(&current->load_sema);
 	process_init();
@@ -210,7 +193,6 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 error:
 	sema_up(&current->load_sema);
-	// thread_exit ();
 	exit(TID_ERROR);
 }
 
@@ -241,19 +223,19 @@ int process_exec (void *f_name) {
 
 	/* 그리고 바이너리를 불러온다. */
 	success = load(file_name, &_if);
-	if (!success)
-		return -1;
 
-	/* Project 2: Argument Passing*/
+	/* Project 2: Argument Passing */
 	set_userstack(argv, argc, &_if);
 	_if.R.rdi = argc;
 	_if.R.rsi = _if.rsp + 8;
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 
 	/* 로드에 실패하면 종료한다. */
-	palloc_free_page (file_name);
-	if (!success)
+	palloc_free_page(f_name);
+	if (!success) {
 		return -1;
+	}
+
 	sema_up(&main_thread->load_sema);
 	/* 전환된 사용자 프로세스를 시작한다. */
 	do_iret (&_if);
@@ -261,7 +243,7 @@ int process_exec (void *f_name) {
 }
 
 
-/* 스레드 tid가 종료될 때까지 기다렸다가 종료 상태를 반환한다.
+/* process_wait - 스레드 tid가 종료될 때까지 기다렸다가 종료 상태를 반환한다.
  * 커널에 의해 종료된 경우 (즉, 예외로 인해 종료된 경우) -1을 반환한다.
  *
  * tid가 유효하지 않거나 호출 프로세스의 자식이 아닌 경우,
@@ -280,22 +262,23 @@ int process_wait (tid_t child_tid) {
 }
 
 /* process_exit - 현재 프로세스를 종료한다.
- * 이 함수는 thread_exit()에 의해 호출된다.
+ * 이 함수는 thread_exit()에 의해 호출되고, 프로세스의 자원을 정리한다.
+ * process_cleanup()의 호출 순서가 중요하다.
  */
 void process_exit (void) {
 	struct thread *t = thread_current();
 
-	for (int i = 2; i < FDT_SIZE; i++) {
-		if (t->fdt[i] != NULL) {
-			file_close(t->fdt[i]);
+	for (int fd = 2; fd < FDT_SIZE; fd++) {
+		if (t->fdt[fd] != NULL) {
+			close(fd);
 		}
 	}
 
-	// palloc_free_multiple(t->fdt, FDT_PAGES);
+	palloc_free_multiple(t->fdt, FDT_PAGES);
 	file_close(t->self_file);
-	process_cleanup ();
 	sema_up(&t->wait_sema);
 	sema_down(&t->exit_sema);
+	process_cleanup();
 }
 
 /* Free the current process's resources. */
