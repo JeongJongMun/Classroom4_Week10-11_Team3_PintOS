@@ -53,6 +53,7 @@ static struct intr_frame *frame;
 
 void
 syscall_init (void) {
+	lock_init(&filesys_lock);
 	write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48  |
 			((uint64_t)SEL_KCSEG) << 32);
 	write_msr(MSR_LSTAR, (uint64_t) syscall_entry);
@@ -170,20 +171,18 @@ pid_t fork(const char *thread_name) {
  * 실행 호출이 진행되는 동안 파일 설명자는 열린 상태로 유지된다는 점에 유의하세요.
  */
 int exec(const char *cmd_line) {
-	int n = strlen(cmd_line);
 	check_address(cmd_line);
-	char *cpname = palloc_get_page(0);
+	char *cpname = palloc_get_page(PAL_ZERO);
 	if (cpname == NULL) {
 		exit(-1);
 	}
-	strlcpy(cpname, cmd_line, PGSIZE);
+	strlcpy(cpname, cmd_line, strlen(cmd_line) + 1);
 
-	if (process_exec(cpname) == -1){
+	if (process_exec(cpname) < 0){
 		exit(-1);
 	}
 
 	NOT_REACHED();
-	return -1;
 }
 
 /* wait - 자식 프로세스 pid를 기다렸다가 자식의 종료 상태를 확인한다. 
@@ -223,7 +222,10 @@ bool create(const char *file, unsigned initial_size) {
  */
 bool remove(const char *file) {
 	check_address(file);
-	return filesys_remove(file);
+	lock_acquire(&filesys_lock);
+	bool success = filesys_remove(file);
+	lock_release(&filesys_lock);
+	return success;
 }
 
 /* open - file이라는 파일을 연다.
@@ -247,14 +249,18 @@ bool remove(const char *file) {
  */
 int open(const char *file) {
 	check_address(file);
+	lock_acquire(&filesys_lock);
 	struct file *file_open = filesys_open(file);
-	if (file_open == NULL)
+	if (file_open == NULL) {
+		lock_release(&filesys_lock);
 		return -1;
+	}
 
 	int fd = add_file_to_fdt(file_open);
-	if (fd == -1)
+	if (fd == -1) {
 		file_close(file_open);
-
+	}
+	lock_release(&filesys_lock);
 	return fd;
 }
 
@@ -290,8 +296,10 @@ int read(int fd, void *buffer, unsigned size) {
 		}
 		return byte;
 	}
-
-	return file_read(_file, buffer, size);
+	lock_acquire(&filesys_lock);
+	int byte_ = file_read(_file, buffer, size);
+	lock_release(&filesys_lock);
+	return byte_;
 }
 
 /* write - fd로 열린 파일에 buffer에서 size 바이트를 쓴다.
@@ -315,7 +323,10 @@ int write(int fd, const void *buffer, unsigned size) {
 		if (_file == NULL) {
 			return -1;
 		}
-		return file_write(_file, buffer, size);
+		lock_acquire(&filesys_lock);
+		int byte = file_write(_file, buffer, size);
+		lock_release(&filesys_lock);
+		return byte;
 	}	
 }
 
@@ -347,30 +358,23 @@ void close(int fd) {
 	if (_file == NULL) {
 		return;
 	}
-	else {
-		file_close(_file);
-		remove_file_from_fdt(fd);
-	}
+	file_close(_file);
+	thread_current()->fdt[fd] = NULL;
 }
 
 /* check_address - 주소가 유효한지 확인한다.
+ * 1. 주소가 NULL인 경우
+ * 2. 주소가 유저 영역이 아닌 경우
+ * 3. 주소가 pml4에 매핑되지 않은 경우
  */
 void check_address(uintptr_t addr) {
 	if (addr == NULL) {
 		exit(-1);
 	}
-	if (pml4_get_page(thread_current()->pml4, (void *)addr) == NULL) {
-		exit(-1);
-	}
 	if (!is_user_vaddr(addr)) {
 		exit(-1);
 	}
-
-	if (KERN_BASE < addr || addr < 0) {
-		exit(-1);
-	}
-
-	if (KERN_BASE < addr + 8 || addr + 8 < 0) {
+	if (pml4_get_page(thread_current()->pml4, (void *)addr) == NULL) {
 		exit(-1);
 	}
 }
@@ -383,33 +387,27 @@ int add_file_to_fdt(struct file *file) {
 	while (t->fdt[fd] != NULL && fd < FDT_SIZE) {
 		fd++;
 	}
-	if (fd >= FDT_SIZE) 
+	if (fd >= FDT_SIZE) {
 		return -1;
+	}
 	t->fdt[fd] = file;
 
 	return fd;
 }
-/* remove_file_from_fdt - fd에 해당하는 file을 fdt에서 제거한다.
- */
-void remove_file_from_fdt(int fd) {
-	struct thread *t = thread_current();
-	t->fdt[fd] = NULL;
-}
-
 
 /* get_file_from_fd - fd에 해당하는 file을 반환한다.
+ * fd가 2보다 작거나 FDT_SIZE보다 큰 경우 NULL을 반환하고,
+ * fd에 해당하는 file이 없는 경우 NULL을 반환한다.
  */
 struct file *get_file_from_fd(int fd) {
-	if (fd < 2 || fd >= FDT_SIZE) 
-		return NULL;
-	struct thread *t = thread_current();
-	struct file *_file = t->fdt[fd];
-	if (_file == NULL) 
-	{
+	if (fd < 2 || fd >= FDT_SIZE) {
 		return NULL;
 	}
-	else
-	{
+	struct file *_file = thread_current()->fdt[fd];
+	if (_file == NULL)  {
+		return NULL;
+	}
+	else {
 		return _file;
 	}
 }

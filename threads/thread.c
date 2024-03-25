@@ -217,8 +217,9 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 
 	/* Allocate thread. */
 	t = palloc_get_page(PAL_ZERO);
-	if (t == NULL)
+	if (t == NULL) {
 		return TID_ERROR;
+	}
 
 	/* Initialize thread. */
 	init_thread(t, name, priority);
@@ -235,10 +236,19 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+	/* Project 2: File Descriptor Table */
+	t->fdt = (struct file **)palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	if (NULL == t->fdt)
+	{
+		return TID_ERROR;
+	}
+	t->fdt[0] = 0;
+	t->fdt[1] = 1;
+	for (int i = 2; i < FDT_SIZE; i++) 
+	{
+		t->fdt[i] = NULL;
+	}
 
-	t->fdt = palloc_get_multiple(PAL_ZERO & PAL_ASSERT, FDT_PAGES);
-	t->fdt[0] = 1;
-	t->fdt[1] = 2;
 	// 현재 스레드의 자식으로 추가
 	list_push_back(&thread_current()->child_list, &t->child_elem);
 
@@ -349,8 +359,11 @@ void thread_yield(void)
 }
 
 void thread_try_yield(void) {
-	if (!list_empty(&ready_list) && thread_current() != idle_thread && !intr_context())
-		thread_yield();
+	if (!list_empty(&ready_list) && thread_current() != idle_thread) {
+		if (list_entry(list_front(&ready_list), struct thread, elem)->priority > thread_current()->priority) {
+			thread_yield();
+		}
+	}
 }
 
 /* thread_set_priority - 현재 스레드의 우선순위를 새로운 우선순위로 설정하고,
@@ -554,6 +567,7 @@ static void init_thread(struct thread *t, const char *name, int priority)
 	list_init(&t->child_list);
 	sema_init(&t->load_sema, 0);
 	sema_init(&t->wait_sema, 0);
+	sema_init(&t->exit_sema, 0);
 	t->exit_status = 0;
 
 	if (strcmp(name, "idle"))
