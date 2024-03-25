@@ -217,8 +217,9 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 
 	/* Allocate thread. */
 	t = palloc_get_page(PAL_ZERO);
-	if (t == NULL)
+	if (t == NULL) {
 		return TID_ERROR;
+	}
 
 	/* Initialize thread. */
 	init_thread(t, name, priority);
@@ -235,12 +236,19 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
-	t->fdt = palloc_get_multiple(PAL_ZERO | PAL_ASSERT, FDT_PAGES);
-	for (int i = 0; i < FDT_SIZE; i++)
+	/* Project 2: File Descriptor Table */
+	t->fdt = (struct file **)palloc_get_multiple(PAL_ZERO, FDT_PAGES);
+	if (NULL == t->fdt)
+	{
+		return TID_ERROR;
+	}
+	t->fdt[0] = 0;
+	t->fdt[1] = 1;
+	for (int i = 2; i < FDT_SIZE; i++) 
+	{
 		t->fdt[i] = NULL;
-	t->fdt[0] = 1;
-	t->fdt[1] = 2;
+	}
+
 	// 현재 스레드의 자식으로 추가
 	list_push_back(&thread_current()->child_list, &t->child_elem);
 
@@ -329,7 +337,6 @@ void thread_exit(void)
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable();
 	do_schedule(THREAD_DYING);
-	// palloc_free_page(thread_current());
 	NOT_REACHED();
 }
 
