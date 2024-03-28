@@ -162,8 +162,10 @@ vm_dealloc_page (struct page *page) {
  * 먼저 페이지를 가져온 다음, 해당 페이지로 vm_do_claim_page를 호출한다.
  */
 bool vm_claim_page(void *va) {
-	struct page *page = NULL;
-	page->va = va;
+	struct page *page = spt_find_page(&thread_current()->spt, va);
+	if (page == NULL) {
+		return false;
+	}
 
 	return vm_do_claim_page(page);
 }
