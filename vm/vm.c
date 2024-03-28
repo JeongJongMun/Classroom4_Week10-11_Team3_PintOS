@@ -4,10 +4,9 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
-/* Initializes the virtual memory subsystem by invoking each subsystem's
- * intialize codes. */
-void
-vm_init (void) {
+/* vm_init - 각 서브시스템의 초기화 코드를 호출하여 가상 메모리 서브시스템을 초기화한다.
+ */
+void vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
 #ifdef EFILESYS  /* For project 4 */
@@ -60,23 +59,29 @@ err:
 	return false;
 }
 
-/* Find VA from spt and return page. On error, return NULL. */
-struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
-	/* TODO: Fill this function. */
+/* spt_find_page - 주어진 SPT에서 가상 주소에 해당하는 페이지를 찾아 반환한다.
+ * 실패 시 NULL을 반환한다.
+ */
+struct page *spt_find_page(struct supplemental_page_table *spt, void *va) {
 
-	return page;
+	struct page p;
+	// p.va = pg_round_down (va);
+	p.va = va;
+
+	struct hash_elem *e = hash_find(&spt->pages, &p.h_elem);
+	if (e == NULL)
+		return NULL;
+
+	return hash_entry(e, struct page, h_elem);
 }
 
-/* Insert PAGE into spt with validation. */
-bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
-	int succ = false;
-	/* TODO: Fill this function. */
+/* spt_insert_page - 주어진 SPT에 페이지를 삽입한다.
+ * 주어진 SPT에 페이지가 이미 존재하는 경우 실패한다.
+ */
+bool spt_insert_page(struct supplemental_page_table *spt, struct page *page) {
+	struct hash_elem *e = hash_insert(&spt->pages, &page->h_elem);
 
-	return succ;
+	return e ? false : true;
 }
 
 void
@@ -173,7 +178,8 @@ vm_do_claim_page (struct page *page) {
 
 /* Initialize new supplemental page table */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	hash_init(&spt->pages, spt_hash, spt_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
@@ -187,4 +193,21 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+}
+
+/* spt_hash - Returns a hash value for page p.
+ */
+uint64_t spt_hash(const struct hash_elem *e, void *aux UNUSED) {
+	struct page *page = hash_entry(e, struct page, h_elem);
+	return hash_bytes(&page->va, sizeof(page->va));
+}
+
+/* spt_less - Returns true if page a precedes page b.
+ */
+bool spt_less(const struct hash_elem *a_, const struct hash_elem *b_,
+		void *aux UNUSED) {
+	const struct page *a = hash_entry(a_, struct page, h_elem);
+	const struct page *b = hash_entry(b_, struct page, h_elem);
+
+	return a->va < b->va;
 }
