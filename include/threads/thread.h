@@ -29,7 +29,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-/* Project 2: System Call FDT */
+/* Project 2: File Descriptor Table */
 #define FDT_PAGES 3
 #define FDT_SIZE (FDT_PAGES * (1<<9))
 
@@ -96,25 +96,36 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int64_t wakeup_ticks;                /* Time to wake up. */
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
-	/* For Priority Donation */
-	struct list donations; // 해당 스레드에게 기부를 해준 스레드
-	struct list_elem d_elem; // donations 리스트를 위한 list_elem
-	struct lock *wait_on_lock; // 기다리고 있는 잠금
-	int original_priority; // 기부를 받기 전의 기존 우선순위
+	/* Project 1: Non Busy Waiting */
+	int64_t wakeup_ticks;               /* Time to wake up. */
 
-	/* For MLFQS */
-	struct list_elem a_elem; // all_list를 위한 list_elem
+	/* Project 1: Priority Donation */
+	struct list donations;     // 이 스레드에게 기부해준 스레드 리스트
+	struct list_elem d_elem;   // donations list element
+	struct lock *wait_on_lock; // 기다리고 있는 잠금
+	int original_priority;     // 기부를 받기 전의 기존 우선순위
+
+	/* Project 1: For MLFQS */
+	struct list_elem a_elem;   // all_list list element
 	int nice;
 	int recent_cpu;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	/* Project 2 */
+	int exit_status;
+	struct file **fdt;           // file descriptor table
+	struct list child_list;      // child list
+	struct list_elem child_elem; // child list element
+	struct semaphore load_sema;  // load semaphore
+	struct semaphore wait_sema;  // wait semaphore
+	struct semaphore exit_sema;  // exit semaphore
+	struct file *self_file;      // self file
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -125,16 +136,7 @@ struct thread {
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
 
-	/* Project 2 */
-	int exit_status;
-	struct file **fdt; // file descriptor table
-	struct list child_list; // child list
-	struct list_elem child_elem; // child list element
-	struct intr_frame parent_if; // parent intr_frame
-	struct semaphore load_sema; // load semaphore
-	struct semaphore wait_sema; // wait semaphore
-	struct semaphore exit_sema; // exit semaphore
-	struct file *self_file; // self file
+
 };
 
 /* If false (default), use round-robin scheduler.
