@@ -27,10 +27,9 @@
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
-static void __do_fork (void *);
+static void __do_fork (void **);
 void set_userstack(char **argv, int argc, struct intr_frame *if_);
 struct thread *get_child_process(tid_t pid);
-static struct thread *main_thread; // tid 1 thread
 
 /* General process initializer for initd and other process. */
 static void process_init (void) {
@@ -40,13 +39,12 @@ static void process_init (void) {
  *
  * process_create_initd()가 반환되기 전에 새 스레드가 스케줄될 수 있으며 종료될 수도 있다.
  * initd의 스레드 ID를 반환하거나 스레드를 생성할 수 없는 경우 TID_ERROR를 반환한다.
- *
+ * 이 함수를 호출하는 메인 스레드는 initd()의 종료를 기다려야 하고,
  * 이 함수는 한 번만 호출되어야 한다.
  */
 tid_t process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
-	main_thread = thread_current();
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -60,11 +58,15 @@ tid_t process_create_initd (const char *file_name) {
 	char *save_ptr;
 	strtok_r(file_name, " ",  &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	sema_down(&main_thread->load_sema);
+	tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR) {
 		palloc_free_page(fn_copy);	
 	}
+	struct thread *child = get_child_process(tid);
+	if (child == NULL) {
+		return TID_ERROR;
+	}
+	sema_down(&child->load_sema);
 	return tid;
 }
 
@@ -86,14 +88,13 @@ static void initd(void *f_name) {
 
 /* process_fork - 현재 프로세스를 'name'으로 복제한다.
  * 새 프로세스의 tid를 반환하거나 스레드를 생성할 수 없는 경우 TID_ERROR를 반환한다.
+ * 자식 프로세스는 부모 프로세스의 실행 컨텍스트를 복제받는다.
+ * 자식 프로세스의 복제가 완료될 때까지 부모 프로세스는 대기해야 한다.
  */
 tid_t process_fork(const char *name, struct intr_frame *if_) {
-	// 현재 스레드의 실행 컨텍스트를 복사
-	struct thread *cur = thread_current();
-	memcpy(&cur->parent_if, if_, sizeof(struct intr_frame));
+	void *aux[2] = {thread_current(), if_};
 
-	// 현재 스레드를 새 스레드로 복제
-	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);
+	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, aux);
 	struct thread *child = get_child_process(tid);
 	if (child == NULL) {
 		return TID_ERROR;
@@ -144,15 +145,15 @@ static bool duplicate_pte (uint64_t *pte, void *va, void *aux) {
 #endif
 
 /* __do_fork - 부모의 실행 컨텍스트를 복사하는 스레드 함수이다.
- * 힌트: parent->tf는 프로세스의 userland 컨텍스트를 보유하지 않는다.
+ * parent->tf는 프로세스의 userland 컨텍스트를 보유하지 않는다.
  * 즉, 이 함수에 process_fork()의 두 번째 인수를 전달해야 한다.
  */
 static void
-__do_fork (void *aux) {
+__do_fork (void **aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *)aux;
+	struct thread *parent = (struct thread *)aux[0];
 	struct thread *current = thread_current();
-	struct intr_frame *parent_if = &parent->parent_if;
+	struct intr_frame *parent_if = (struct intr_frame *)aux[1];
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -185,7 +186,8 @@ __do_fork (void *aux) {
 			current->fdt[idx] = file_duplicate(f);
 		}
 	}
-	if_.R.rax = 0; // 자식 프로세스의 반환 값은 0
+	/* 자식 프로세스의 반환 값은 0 */
+	if_.R.rax = 0;
 	sema_up(&current->load_sema);
 	process_init();
 	/* Finally, switch to the newly created process. */
@@ -230,20 +232,20 @@ int process_exec (void *f_name) {
 	_if.R.rsi = _if.rsp + 8;
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 
-	/* 로드에 실패하면 종료한다. */
 	palloc_free_page(f_name);
+	/* 로드에 실패하면 종료한다. */
 	if (!success) {
 		return -1;
 	}
 
-	sema_up(&main_thread->load_sema);
+	sema_up(&thread_current()->load_sema);
 	/* 전환된 사용자 프로세스를 시작한다. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
 
 
-/* process_wait - 스레드 tid가 종료될 때까지 기다렸다가 종료 상태를 반환한다.
+/* process_wait - 자식 프로세스 tid가 종료될 때까지 기다렸다가 자식의 종료 상태를 반환한다.
  * 커널에 의해 종료된 경우 (즉, 예외로 인해 종료된 경우) -1을 반환한다.
  *
  * tid가 유효하지 않거나 호출 프로세스의 자식이 아닌 경우,

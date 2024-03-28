@@ -135,7 +135,7 @@ void thread_init(void)
 		.address = (uint64_t)gdt};
 	lgdt(&gdt_ds);
 
-	/* Init the globla thread context */
+	/* Init the global thread context */
 	lock_init(&tid_lock);
 	list_init(&ready_list);
 	list_init(&sleep_list);
@@ -225,7 +225,6 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 	init_thread(t, name, priority);
 	tid = t->tid = allocate_tid();
 
-
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t)kernel_thread;
@@ -236,7 +235,9 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-	/* Project 2: File Descriptor Table */
+
+	#ifdef USERPROG
+	/* Project 2: File Descriptor Table init */
 	t->fdt = (struct file **)palloc_get_multiple(PAL_ZERO, FDT_PAGES);
 	if (NULL == t->fdt)
 	{
@@ -249,8 +250,9 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 		t->fdt[i] = NULL;
 	}
 
-	// 현재 스레드의 자식으로 추가
+	/* Project 2: 현재 프로세스의 자식으로 추가 */
 	list_push_back(&thread_current()->child_list, &t->child_elem);
+	#endif
 
 	/* Add to run queue. */
 	thread_unblock(t);
@@ -260,7 +262,6 @@ tid_t thread_create(const char *name, int priority, thread_func *function, void 
 		thread_yield();
 
 	intr_set_level(old_level);
-
 	return tid;
 }
 
