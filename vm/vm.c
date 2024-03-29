@@ -218,17 +218,63 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 	hash_init(&spt->pages, spt_hash, spt_less, NULL);
 }
 
-/* Copy supplemental page table from src to dst */
-bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+/* SPT를 src에서 dst로 복사한다. */
+bool supplemental_page_table_copy(struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+	struct hash_iterator i;
+
+	hash_first(&i, &src->pages);
+	while (hash_next(&i)) {
+		struct page *src_page = hash_entry(hash_cur(&i), struct page, h_elem);
+		struct page *dst_page = NULL;
+		// struct page *dst_page = palloc_get_page(PAL_USER);
+		if (src_page->frame == NULL) {
+			if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
+				return false;
+			}
+		}
+		else {
+			enum vm_type src_type = page_get_type(src_page);
+			switch (src_type)
+			{
+			case VM_ANON:
+				// if (!vm_alloc_page(VM_ANON, src_page->va, src_page->writable)) {
+				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
+					return false;
+				}
+				if (!vm_claim_page(src_page->va)) {
+					return false;
+				}
+				break;
+			case VM_FILE:
+				// if (!vm_alloc_page(VM_ANON, src_page->va, src_page->writable)) {
+				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
+					return false;
+				}
+				if (!vm_claim_page(src_page->va)) {
+					return false;
+				}
+				break;
+			default:
+				break;
+			}
+			dst_page = spt_find_page(dst, src_page->va);
+			memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+		}
+	}
+	return true;
 }
 
-/* Free the resource hold by the supplemental page table */
-void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
-	/* TODO: Destroy all the supplemental_page_table hold by thread and
-	 * TODO: writeback all the modified contents to the storage. */
+void page_delete(const struct hash_elem *e, void *aux UNUSED){
+	struct page *page = hash_entry(e, struct page, h_elem);
+	destroy(page);
+	palloc_free_page(page);
+}
+/* SPT가 들고있는 자원을 해제한다. */
+void supplemental_page_table_kill (struct supplemental_page_table *spt) {
+	/* TODO: 스레드가 들고 있는 SPT를 삭제하고 수정된 모든 내용을 스토리지에 저장한다. */
+	
+	hash_clear(&spt->pages, page_delete);
 }
 
 /* spt_hash - Returns a hash value for page p.
