@@ -4,6 +4,9 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 
+uint64_t spt_hash(const struct hash_elem *e, void *aux UNUSED);
+bool spt_less(const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+
 /* vm_init - 각 서브시스템의 초기화 코드를 호출하여 가상 메모리 서브시스템을 초기화한다.
  */
 void vm_init (void) {
@@ -63,15 +66,14 @@ err:
  * 실패 시 NULL을 반환한다.
  */
 struct page *spt_find_page(struct supplemental_page_table *spt, void *va) {
-
 	struct page p;
-	// p.va = pg_round_down (va);
-	p.va = va;
-
+	p.va = pg_round_down(va);
+	
 	struct hash_elem *e = hash_find(&spt->pages, &p.h_elem);
-	if (e == NULL)
+	if (e == NULL){
 		return NULL;
-
+	}
+	
 	return hash_entry(e, struct page, h_elem);
 }
 
@@ -80,7 +82,6 @@ struct page *spt_find_page(struct supplemental_page_table *spt, void *va) {
  */
 bool spt_insert_page(struct supplemental_page_table *spt, struct page *page) {
 	struct hash_elem *e = hash_insert(&spt->pages, &page->h_elem);
-
 	return e ? false : true;
 }
 
@@ -118,9 +119,6 @@ vm_evict_frame (void) {
 static struct frame *vm_get_frame(void) {
 	struct frame *frame = malloc(sizeof(struct frame));
 	frame->kva = palloc_get_page(PAL_USER);
-	if (frame->kva == NULL) {
-		PANIC("TODO: Page eviction is not implemented yet.");
-	}
 	frame->page = NULL;
 
 	ASSERT (frame != NULL);
