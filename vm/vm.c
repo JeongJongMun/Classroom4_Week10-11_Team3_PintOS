@@ -1,5 +1,7 @@
 /* vm.c: Generic interface for virtual memory objects. */
 
+#include <string.h>
+#include "threads/mmu.h"
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
@@ -39,24 +41,38 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
-/* Create the pending page object with initializer. If you want to create a
- * page, do not create it directly and make it through this function or
- * `vm_alloc_page`. */
-bool
-vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
+/* vm_alloc_page_with_initializer - 초기화기로 보류 중인 페이지 객체를 만든다.
+ * 페이지를 만들려면 직접 만들지 말고 이 함수나 `vm_alloc_page`를 통해 만들어라.
+ */
+bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
-
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct supplemental_page_table *spt = &thread_current()->spt;
 
-	/* Check wheter the upage is already occupied or not. */
+	/* upage가 이미 사용(occupied) 중인지 여부 확인 */
 	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+		/* 페이지를 생성하고 VM 타입에 따라 초기화기를 가져온다.
+		 * 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 만든다.
+		 * uninit_new를 호출한 후에 필드를 수정해야 한다.
+		 */
+		struct page *page = palloc_get_page(PAL_USER);
+		void *initializer = NULL;
+		switch (VM_TYPE(type)) {
+			case VM_ANON:
+				initializer = anon_initializer;
+				break;
+			case VM_FILE:
+				initializer = file_backed_initializer;
+				break;
+			default:
+				break;
+		}
+		uninit_new(page, upage, init, type, aux, initializer);
+		page->writable = writable;
 
-		/* TODO: Insert the page into the spt. */
+		/* spt에 페이지 삽입 */
+		return spt_insert_page(spt, page);
 	}
 err:
 	return false;
@@ -141,16 +157,22 @@ static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
 
-/* Return true on success */
-bool
-vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+/* 성공 시에 true를 반환한다. */
+bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr,
+		bool user UNUSED, bool write, bool not_present) {
+	struct supplemental_page_table *spt = &thread_current()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
-	/* TODO: Your code goes here */
+	if (addr == NULL || is_kernel_vaddr(addr)) {
+		return false;
+	}
 
-	return vm_do_claim_page (page);
+	/* TODO: Your code goes here */
+	if (not_present) {
+		page = spt_find_page(spt, addr);
+		return page ? vm_do_claim_page(page) : false;
+	}
+	return false;
 }
 
 /* Free the page.
