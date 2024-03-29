@@ -116,7 +116,7 @@ vm_evict_frame (void) {
  * 이 함수는 프레임을 퇴거하여 사용 가능한 메모리 공간을 확보한다.
  */
 static struct frame *vm_get_frame(void) {
-	struct frame *frame = NULL;
+	struct frame *frame = malloc(sizeof(struct frame));
 	frame->kva = palloc_get_page(PAL_USER);
 	if (frame->kva == NULL) {
 		PANIC("TODO: Page eviction is not implemented yet.");
@@ -125,6 +125,11 @@ static struct frame *vm_get_frame(void) {
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
+
+	if (frame->kva == NULL) {
+		free(frame);
+		PANIC("TODO: Page eviction is not implemented.");
+	} 
 	return frame;
 }
 
@@ -166,23 +171,24 @@ bool vm_claim_page(void *va) {
 	if (page == NULL) {
 		return false;
 	}
-
 	return vm_do_claim_page(page);
 }
 
-/* vm_do_claim_page - 프레임을 요구하고 페이지를 설정한다.
+/* vm_do_claim_page - 프레임을 요구하고 페이지와 프레임을 연결한다.
  * MMU를 설정하는데, 페이지 테이블에 페이지의 VA와 프레임의 PA 간의 매핑을 추가한다.
  * 성공 여부를 반환한다.
  */
 static bool vm_do_claim_page(struct page *page) {
 	struct frame *frame = vm_get_frame();
+	struct thread *t = thread_current();
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
-	bool success = pml4_set_page(thread_current()->pml4, page->va, frame->kva, true);
-	// return success;
+	if (!pml4_set_page(t->pml4, page->va, frame->kva, page->writable)) {
+		return false;
+	}
 	return swap_in(page, frame->kva);
 }
 
