@@ -144,17 +144,9 @@ page_fault (struct intr_frame *f) {
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
 		return;
 #endif
-
-	exit(-1);
 	/* Count page faults. */
 	page_fault_cnt++;
-
-	/* If the fault is true fault, show info and exit. */
-	printf ("Page fault at %p: %s error %s page in %s context.\n",
-			fault_addr,
-			not_present ? "not present" : "rights violation",
-			write ? "writing" : "reading",
-			user ? "user" : "kernel");
-	kill (f);
+	/* 유효하지 않은 접근은 프로세스를 종료하여 모든 자원을 해제한다. */
+	exit(-1);
 }
 

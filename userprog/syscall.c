@@ -360,7 +360,6 @@ void close(int fd) {
 /* check_address - 주소가 유효한지 확인한다.
  * 1. 주소가 NULL인 경우
  * 2. 주소가 유저 영역이 아닌 커널 영역인 경우
- * 3. 주소가 pml4에 매핑되지 않은 경우
  */
 void check_address(uintptr_t addr) {
 	if (addr == NULL) {
