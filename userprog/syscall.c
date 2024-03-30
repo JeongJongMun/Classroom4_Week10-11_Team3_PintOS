@@ -369,9 +369,6 @@ void check_address(uintptr_t addr) {
 	if (!is_user_vaddr(addr)) {
 		exit(-1);
 	}
-	if (pml4_get_page(thread_current()->pml4, (void *)addr) == NULL) {
-		exit(-1);
-	}
 }
 
 /* add_file_to_fdt - file을 fdt에 추가하고 fd를 반환한다.
