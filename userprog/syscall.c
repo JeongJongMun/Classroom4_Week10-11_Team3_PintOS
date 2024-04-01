@@ -279,6 +279,10 @@ int read(int fd, void *buffer, unsigned size) {
 	if (_file == NULL) {
 		return -1;
 	}
+	struct page *page = spt_find_page(&thread_current()->spt, buffer);
+	if (page && !page->writable) {
+		exit(-1);
+	}
 	int byte = 0;
 	char *_buffer;
 	if (fd == STDIN_FILENO) {
