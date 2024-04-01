@@ -56,7 +56,7 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
 		 * 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 만든다.
 		 * uninit_new를 호출한 후에 필드를 수정해야 한다.
 		 */
-		struct page *page = palloc_get_page(PAL_USER);
+		struct page *page = malloc(sizeof(struct page));
 		void *initializer = NULL;
 		switch (VM_TYPE(type)) {
 			case VM_ANON:
@@ -267,8 +267,7 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 
 void page_delete(const struct hash_elem *e, void *aux UNUSED){
 	struct page *page = hash_entry(e, struct page, h_elem);
-	destroy(page);
-	palloc_free_page(page);
+	vm_dealloc_page(page);
 }
 /* SPT가 들고있는 자원을 해제한다. */
 void supplemental_page_table_kill (struct supplemental_page_table *spt) {
