@@ -56,7 +56,7 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
 		 * 그런 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 만든다.
 		 * uninit_new를 호출한 후에 필드를 수정해야 한다.
 		 */
-		struct page *page = palloc_get_page(PAL_USER);
+		struct page *page = malloc(sizeof(struct page));
 		void *initializer = NULL;
 		switch (VM_TYPE(type)) {
 			case VM_ANON:
@@ -147,9 +147,15 @@ static struct frame *vm_get_frame(void) {
 	return frame;
 }
 
-/* Growing the stack. */
-static void
-vm_stack_growth (void *addr UNUSED) {
+/* vm_stack_growth - addr이 더 이상 오류 주소가 되지 않도록 스택을 확장한다.
+ * 할당을 처리할 때 addr을 PGSIZE로 반올림한다.
+ */
+static void vm_stack_growth(void) {
+	struct thread *t = thread_current();
+	void *new_stack_bottom = (void *)((uint8_t *)t->stack_bottom - PGSIZE);
+
+	vm_alloc_page(VM_ANON, new_stack_bottom, true);
+	t->stack_bottom = new_stack_bottom;
 }
 
 /* Handle the fault on write_protected page */
@@ -157,22 +163,39 @@ static bool
 vm_handle_wp (struct page *page UNUSED) {
 }
 
-/* 성공 시에 true를 반환한다. */
-bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr,
-		bool user UNUSED, bool write, bool not_present) {
+/* vm_try_handle_fault - 성공 시에 true를 반환한다. 
+ * f: 시스템 콜 또는 페이지 폴트가 발생했을 때, 그 순간의 레지스터 값을 담고 있는 구조체
+ * addr: 페이지 폴트가 발생한 가상 주소
+ * user: 사용자 영역이면 true, 커널 영역이면 false
+ * write: 쓰기 작업이면 true, 읽기 작업이면 false
+ * not_present: 페이지 폴트가 발생한 페이지가 메모리에 없으면 true, 있으면 false
+ * not_present - false: r/o page에 쓰기 작업 시도
+ */
+bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
 	struct supplemental_page_table *spt = &thread_current()->spt;
+	struct thread *t = thread_current();
 	struct page *page = NULL;
-	/* TODO: Validate the fault */
+	/* Validate the fault */
 	if (addr == NULL || is_kernel_vaddr(addr)) {
 		return false;
 	}
-
-	/* TODO: Your code goes here */
-	if (not_present) {
-		page = spt_find_page(spt, addr);
-		return page ? vm_do_claim_page(page) : false;
+	if (user) {
+		t->rsp = f->rsp;
 	}
-	return false;
+
+	/* stack_bottom >= rsp >= addr시 스택 증가
+	* 스택의 크기를 1메가로 제한
+	*/
+	if (t->stack_bottom >= t->rsp && t->rsp - 32 <= addr && (1 << 20) > (USER_STACK - ((uint64_t )t->stack_bottom))) {
+		vm_stack_growth();
+		return true;
+	} 
+	
+	page = spt_find_page(spt, addr);
+	if (page == NULL || (write && !page->writable)) {
+		return false;
+	}
+	return vm_do_claim_page(page);
 }
 
 /* Free the page.
@@ -213,8 +236,7 @@ static bool vm_do_claim_page(struct page *page) {
 }
 
 /* Initialize new supplemental page table */
-void
-supplemental_page_table_init (struct supplemental_page_table *spt) {
+void supplemental_page_table_init (struct supplemental_page_table *spt) {
 	hash_init(&spt->pages, spt_hash, spt_less, NULL);
 }
 
@@ -227,7 +249,6 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 	while (hash_next(&i)) {
 		struct page *src_page = hash_entry(hash_cur(&i), struct page, h_elem);
 		struct page *dst_page = NULL;
-		// struct page *dst_page = palloc_get_page(PAL_USER);
 		if (src_page->frame == NULL) {
 			if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
 				return false;
@@ -238,7 +259,6 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 			switch (src_type)
 			{
 			case VM_ANON:
-				// if (!vm_alloc_page(VM_ANON, src_page->va, src_page->writable)) {
 				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
 					return false;
 				}
@@ -247,7 +267,6 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 				}
 				break;
 			case VM_FILE:
-				// if (!vm_alloc_page(VM_ANON, src_page->va, src_page->writable)) {
 				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
 					return false;
 				}
@@ -267,8 +286,7 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 
 void page_delete(const struct hash_elem *e, void *aux UNUSED){
 	struct page *page = hash_entry(e, struct page, h_elem);
-	destroy(page);
-	palloc_free_page(page);
+	vm_dealloc_page(page);
 }
 /* SPT가 들고있는 자원을 해제한다. */
 void supplemental_page_table_kill (struct supplemental_page_table *spt) {
