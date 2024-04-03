@@ -251,33 +251,14 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 	while (hash_next(&i)) {
 		struct page *src_page = hash_entry(hash_cur(&i), struct page, h_elem);
 		struct page *dst_page = NULL;
-		if (src_page->frame == NULL) {
-			if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
-				return false;
-			}
+		if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
+			return false;
 		}
-		else {
-			enum vm_type src_type = page_get_type(src_page);
-			switch (src_type)
-			{
-			case VM_ANON:
-				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
-					return false;
-				}
-				if (!vm_claim_page(src_page->va)) {
-					return false;
-				}
-				break;
-			case VM_FILE:
-				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
-					return false;
-				}
-				if (!vm_claim_page(src_page->va)) {
-					return false;
-				}
-				break;
-			default:
-				break;
+		enum vm_type src_type = VM_TYPE(src_page->operations->type);
+
+		if (src_type != VM_UNINIT) {
+			if (!vm_claim_page(src_page->va)) {
+				return false;
 			}
 			dst_page = spt_find_page(dst, src_page->va);
 			memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
