@@ -115,6 +115,12 @@ void syscall_handler (struct intr_frame *f) {
 	case SYS_CLOSE:
 		close(f->R.rdi);
 		break;
+	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap(f->R.rdi);
+		break;
 	default:
 		thread_exit();
 		break;
@@ -359,6 +365,34 @@ void close(int fd) {
 	}
 	file_close(_file);
 	thread_current()->fdt[fd] = NULL;
+}
+
+/* mmap - offset 바이트에서 시작하여 fd로 열린 파일의 
+ * length 바이트를 프로세스의 가상 주소 공간인 addr에 매핑한다.
+ */
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+	struct file *file = get_file_from_fd(fd);
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if (page != NULL || addr == NULL || !is_user_vaddr(addr)) {
+		return NULL;
+	}
+	if (file == NULL || file_length(file) <= 0 || length <= 0) {
+		return NULL;
+	}
+	if (offset % PGSIZE != 0 || pg_round_down(addr) != addr) {
+		return NULL;
+	}
+	if (fd < 2) {
+		exit(-1);
+	}
+	return do_mmap(addr, length, writable, file, offset);
+}
+
+/* munmap - 지정된 주소 범위 addr에 대한 매핑을 언매핑한다.
+ */
+void munmap(void *addr) {
+	check_address(addr);
+	do_munmap(addr);
 }
 
 /* check_address - 주소가 유효한지 확인한다.
