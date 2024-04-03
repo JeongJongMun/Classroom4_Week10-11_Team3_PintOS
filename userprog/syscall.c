@@ -69,7 +69,6 @@ syscall_init (void) {
  */
 void syscall_handler (struct intr_frame *f) {
 	frame = f;
-	thread_current()->rsp = f->rsp;
 	
 	uint64_t syscall_num = f->R.rax;
 	switch (syscall_num)

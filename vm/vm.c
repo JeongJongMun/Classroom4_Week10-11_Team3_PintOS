@@ -179,14 +179,13 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user, bool write
 	if (addr == NULL || is_kernel_vaddr(addr)) {
 		return false;
 	}
-	if (user) {
-		t->rsp = f->rsp;
+	void *rsp = f->rsp;
+	if(!user){
+		rsp = t->tf.rsp;
 	}
 
-	/* stack_bottom >= rsp >= addr시 스택 증가
-	* 스택의 크기를 1메가로 제한
-	*/
-	if (t->stack_bottom >= t->rsp && t->rsp - 32 <= addr && (1 << 20) > (USER_STACK - ((uint64_t )t->stack_bottom))) {
+	/* 스택 증가. 스택의 크기를 1메가로 제한 */
+	if (USER_STACK >= addr && rsp - 8 <= addr && (1 << 20) >= (USER_STACK - ((uint64_t )t->stack_bottom))) {
 		vm_stack_growth();
 		return true;
 	} 
@@ -195,7 +194,10 @@ bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user, bool write
 	if (page == NULL || (write && !page->writable)) {
 		return false;
 	}
-	return vm_do_claim_page(page);
+	if (not_present) {
+		return vm_do_claim_page(page);
+	}
+	return false;
 }
 
 /* Free the page.
