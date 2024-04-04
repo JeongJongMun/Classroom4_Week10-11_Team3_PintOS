@@ -18,9 +18,8 @@ enum vm_type {
 
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
-	VM_MARKER_0 = (1 << 3),
-	VM_MARKER_1 = (1 << 4),
-	VM_STACK = (1 << 5),
+	VM_STACK = (1 << 3),
+	VM_CODE_SEG = (1 << 4),
 
 	/* DO NOT EXCEED THIS VALUE. */
 	VM_MARKER_END = (1 << 31),
@@ -37,11 +36,20 @@ struct page_operations;
 struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
+/* VM_IS_STACK_PAGE - 페이지가 스택 페이지인지 확인한다.
+ * 스택 페이지라면 1을 반환, 아니라면 0을 반환한다.
+ */
+#define VM_IS_STACK_PAGE(type) ((type & VM_STACK) == (1 << 3))
 
-/* The representation of "page".
- * This is kind of "parent class", which has four "child class"es, which are
- * uninit_page, file_page, anon_page, and page cache (project4).
- * DO NOT REMOVE/MODIFY PREDEFINED MEMBER OF THIS STRUCTURE. */
+/* VM_IS_CODE_SEG - 페이지가 코드 페이지인지 확인한다.
+ * 코드 페이지라면 1을 반환, 아니라면 0을 반환한다.
+ */
+#define VM_IS_CODE_SEG(type) ((type & VM_CODE_SEG) == (1 << 4))
+
+/* "Page"의 표현
+ * 이것은 "부모 클래스"와 같은 것으로, 네 개의 "자식 클래스"가 있습니다.
+ * uninit_page, file_page, anon_page, page cache (project4)입니다.
+ * 이 구조체의 사전 정의된 멤버를 제거하거나 수정하지 마십시오. */
 struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
@@ -100,6 +108,8 @@ struct file_info {
 	uint32_t read_bytes;
 	uint32_t zero_bytes;
 };
+
+
 
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);

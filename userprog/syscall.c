@@ -69,7 +69,6 @@ syscall_init (void) {
  */
 void syscall_handler (struct intr_frame *f) {
 	frame = f;
-	thread_current()->rsp = f->rsp;
 	
 	uint64_t syscall_num = f->R.rax;
 	switch (syscall_num)
@@ -115,6 +114,12 @@ void syscall_handler (struct intr_frame *f) {
 		break;
 	case SYS_CLOSE:
 		close(f->R.rdi);
+		break;
+	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap(f->R.rdi);
 		break;
 	default:
 		thread_exit();
@@ -279,6 +284,10 @@ int read(int fd, void *buffer, unsigned size) {
 	if (_file == NULL) {
 		return -1;
 	}
+	struct page *page = spt_find_page(&thread_current()->spt, buffer);
+	if (page && !page->writable) {
+		exit(-1);
+	}
 	int byte = 0;
 	char *_buffer;
 	if (fd == STDIN_FILENO) {
@@ -358,6 +367,39 @@ void close(int fd) {
 	thread_current()->fdt[fd] = NULL;
 }
 
+/* mmap - offset 바이트에서 시작하여 fd로 열린 파일의 
+ * length 바이트를 프로세스의 가상 주소 공간인 addr에 매핑한다.
+ */
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+	if (addr == NULL || pg_round_down(addr) != addr || is_kernel_vaddr(addr + length) || is_kernel_vaddr(addr)) {
+		return NULL;
+	}
+
+	if (offset != pg_round_down(offset)) {
+		return NULL;
+	}
+	if (fd < 2) {
+		exit(-1);
+	}
+
+	struct file *file = get_file_from_fd(fd);
+	if (file == NULL || file_length(file) <= 0 || (int)length <= 0) {
+		return NULL;
+	}
+
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if (page != NULL) {
+		return NULL;
+	}
+	return do_mmap(addr, length, writable, file, offset);
+}
+
+/* munmap - 지정된 주소 범위 addr에 대한 매핑을 언매핑한다.
+ */
+void munmap(void *addr) {
+	do_munmap(addr);
+}
+
 /* check_address - 주소가 유효한지 확인한다.
  * 1. 주소가 NULL인 경우
  * 2. 주소가 유저 영역이 아닌 커널 영역인 경우
@@ -387,7 +429,7 @@ int add_file_to_fdt(struct file *file) {
 	return fd;
 }
 
-/* get_file_from_fd - fd에 해당하는 file을 반환한다.
+/* get_file_from_fd - fd에 해당하는 file을 반mm환한다.
  * fd가 2보다 작거나 FDT_SIZE보다 큰 경우 NULL을 반환하고,
  * fd에 해당하는 file이 없는 경우 NULL을 반환한다.
  */
