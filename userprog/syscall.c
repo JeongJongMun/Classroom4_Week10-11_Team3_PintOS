@@ -371,19 +371,25 @@ void close(int fd) {
  * length 바이트를 프로세스의 가상 주소 공간인 addr에 매핑한다.
  */
 void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
-	struct file *file = get_file_from_fd(fd);
-	struct page *page = spt_find_page(&thread_current()->spt, addr);
-	if (page != NULL || addr == NULL || !is_user_vaddr(addr)) {
+	if (addr == NULL || pg_round_down(addr) != addr || is_kernel_vaddr(addr + length) || is_kernel_vaddr(addr)) {
 		return NULL;
 	}
-	if (file == NULL || file_length(file) <= 0 || length <= 0) {
-		return NULL;
-	}
-	if (offset % PGSIZE != 0 || pg_round_down(addr) != addr) {
+
+	if (offset != pg_round_down(offset)) {
 		return NULL;
 	}
 	if (fd < 2) {
 		exit(-1);
+	}
+
+	struct file *file = get_file_from_fd(fd);
+	if (file == NULL || file_length(file) <= 0 || (int)length <= 0) {
+		return NULL;
+	}
+
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	if (page != NULL) {
+		return NULL;
 	}
 	return do_mmap(addr, length, writable, file, offset);
 }
@@ -391,7 +397,6 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
 /* munmap - 지정된 주소 범위 addr에 대한 매핑을 언매핑한다.
  */
 void munmap(void *addr) {
-	check_address(addr);
 	do_munmap(addr);
 }
 
@@ -424,7 +429,7 @@ int add_file_to_fdt(struct file *file) {
 	return fd;
 }
 
-/* get_file_from_fd - fd에 해당하는 file을 반환한다.
+/* get_file_from_fd - fd에 해당하는 file을 반mm환한다.
  * fd가 2보다 작거나 FDT_SIZE보다 큰 경우 NULL을 반환하고,
  * fd에 해당하는 file이 없는 경우 NULL을 반환한다.
  */

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# 파일 생성 후 반드시 `chmod +x vscode-filename-configurator`` 명령어로 실행 권한 부여 할 것
+# 파일 생성 후 반드시 `chmod +x vscode-filename-configurator` 명령어로 실행 권한 부여 할 것
 import sys
 import json
 import os
@@ -14,15 +14,26 @@ def is_not_executable_file(file_path):
     return os.access(file_path, os.R_OK) and not os.access(file_path, os.X_OK)
 
 def find_files(root_path, file_func):
+    global project
     files = []
 
     for foldername, subfolders, filenames in os.walk(root_path):
         for filename in filenames:
+            relative_path = ""
             file_path = os.path.join(foldername, filename)
 
-            if file_func(file_path):
+            if project == "threads" and file_path.find("threads/build/tests/threads") >= 0:
+                relative_path = os.path.relpath(file_path, root_path)
+                testfile_name, testfile_ext = os.path.splitext(relative_path)
+
+                if testfile_name not in files and testfile_name != "tests/threads/tests":
+                    files.append(testfile_name)
+
+            elif file_func(file_path):
                 relative_path = os.path.relpath(file_path, root_path)
                 files.append(relative_path)
+
+    files.sort()
 
     return files
 
@@ -53,7 +64,7 @@ elif file_type == "all":
     file_func = is_readable_file
 else:
     print_usage()
-    
+
 if os.path.exists(build_path):
     file_list = find_files(build_path, file_func)
 else:

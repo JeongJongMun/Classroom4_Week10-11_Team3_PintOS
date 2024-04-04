@@ -103,6 +103,7 @@ bool spt_insert_page(struct supplemental_page_table *spt, struct page *page) {
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(&spt->pages, &page->h_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -141,7 +142,7 @@ static struct frame *vm_get_frame(void) {
 	ASSERT (frame->page == NULL);
 
 	if (frame->kva == NULL) {
-		free(frame);
+		// free(frame);
 		PANIC("TODO: Page eviction is not implemented.");
 	} 
 	return frame;
@@ -166,9 +167,9 @@ vm_handle_wp (struct page *page UNUSED) {
 /* vm_try_handle_fault - 성공 시에 true를 반환한다. 
  * f: 시스템 콜 또는 페이지 폴트가 발생했을 때, 그 순간의 레지스터 값을 담고 있는 구조체
  * addr: 페이지 폴트가 발생한 가상 주소
- * user: 사용자 영역이면 true, 커널 영역이면 false
+ * user: 사용자 모드이면 true, 커널 모드이면 false
  * write: 쓰기 작업이면 true, 읽기 작업이면 false
- * not_present: 페이지 폴트가 발생한 페이지가 메모리에 없으면 true, 있으면 false
+ * not_present: 페이지 폴트가 발생한 페이지가 메모리에(프레임에 데이터 유무) 없으면 true
  * not_present - false: r/o page에 쓰기 작업 시도
  */
 bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
@@ -246,35 +247,54 @@ void supplemental_page_table_init (struct supplemental_page_table *spt) {
 bool supplemental_page_table_copy(struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 	struct hash_iterator i;
-
+	struct page *src_page = NULL;
+	struct page *dst_page = NULL;
 	hash_first(&i, &src->pages);
 	while (hash_next(&i)) {
-		struct page *src_page = hash_entry(hash_cur(&i), struct page, h_elem);
-		struct page *dst_page = NULL;
-		if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
-			return false;
-		}
+		src_page = hash_entry(hash_cur(&i), struct page, h_elem);
 		enum vm_type src_type = VM_TYPE(src_page->operations->type);
+		
+		switch (src_type) {
+			case VM_UNINIT:
+				if (!vm_alloc_page_with_initializer(src_page->uninit.type, src_page->va, src_page->writable, src_page->uninit.init, src_page->uninit.aux)) {
+					return false;
+				}
+				break;
+			case VM_ANON:
+				if (!vm_alloc_page(src_type, src_page->va, src_page->writable)) {
+					return false;
+				}
+				if (!vm_claim_page(src_page->va)) {
+					return false;
+				}
+				dst_page = spt_find_page(dst, src_page->va);
+				memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+				break;
+			case VM_FILE:
+				if (!vm_alloc_page(src_type, src_page->va, src_page->writable)) {
+					return false;
+				}
+				if (!vm_claim_page(src_page->va)) {
+					return false;
+				}
+				dst_page = spt_find_page(dst, src_page->va);
+				memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+				break;
+			default:
+				break;
 
-		if (src_type != VM_UNINIT) {
-			if (!vm_claim_page(src_page->va)) {
-				return false;
-			}
-			dst_page = spt_find_page(dst, src_page->va);
-			memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
 		}
 	}
 	return true;
 }
-
-void page_delete(const struct hash_elem *e, void *aux UNUSED){
+static void page_delete(const struct hash_elem *e, void *aux){
 	struct page *page = hash_entry(e, struct page, h_elem);
 	vm_dealloc_page(page);
 }
+
 /* SPT가 들고있는 자원을 해제한다. */
 void supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: 스레드가 들고 있는 SPT를 삭제하고 수정된 모든 내용을 스토리지에 저장한다. */
-	
 	hash_clear(&spt->pages, page_delete);
 }
 

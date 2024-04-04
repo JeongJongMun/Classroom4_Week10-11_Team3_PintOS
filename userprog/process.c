@@ -278,9 +278,15 @@ void process_exit (void) {
 
 	palloc_free_multiple(t->fdt, FDT_PAGES);
 	file_close(t->self_file);
+#ifdef VM
+	process_cleanup();
+	hash_destroy(&t->spt.pages, NULL);
+#endif
 	sema_up(&t->wait_sema);
 	sema_down(&t->exit_sema);
+#ifndef VM
 	process_cleanup();
+#endif
 }
 
 /* Free the current process's resources. */
@@ -291,7 +297,6 @@ process_cleanup (void) {
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
 #endif
-
 	uint64_t *pml4;
 	/* Destroy the current process's page directory and switch back
 	 * to the kernel-only page directory. */
@@ -534,9 +539,9 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 }
 
 #ifndef VM
-/* Codes of this block will be ONLY USED DURING project 2.
- * If you want to implement the function for whole project 2, implement it
- * outside of #ifndef macro. */
+/* 이 블록의 코드는 프로젝트 2에서만 사용된다.
+ * 전체 프로젝트 2에 대해 함수를 구현하려면 #ifndef 매크로 외부에 구현하라.
+ */
 
 /* load() helpers. */
 static bool install_page (void *upage, void *kpage, bool writable);
@@ -633,9 +638,9 @@ install_page (void *upage, void *kpage, bool writable) {
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-/* From here, codes will be used after project 3.
- * If you want to implement the function for only project 2, implement it on the
- * upper block. */
+/* 여기서부터 프로젝트 3부터 사용되는 코드이다.
+ * 프로젝트 2에만 사용할 함수는 위쪽 블록에 구현하라.
+ */
 
 static bool lazy_load_segment(struct page *page, void *aux) {
 	/* 파일에서 세그먼트를 로드한다. 
