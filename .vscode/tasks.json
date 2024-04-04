@@ -1,0 +1,267 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Debug PintOS",
+            "dependsOn": [
+                "Configure QEMU Setting",
+                "Run QEMU"
+            ],
+            "dependsOrder": "sequence"
+        },
+        {
+            "label": "Run QEMU",
+            "type": "shell",
+            "command": [
+                "${workspaceFolder}/utils/pintos"
+            ],
+            "args": [
+                "--gdb",
+                "-m 20",
+                "--fs-disk=10",
+                "--swap-disk=4",
+                "-p",
+                "tests/vm/page-merge-par:page-merge-par",
+                "-p",
+                "tests/vm/child-sort:child-sort",
+                "--",
+                "-q",
+                "-f",
+                "run",
+                "page-merge-par ${input:args}"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/${input:project}/build"
+            },
+            "dependsOn": [
+                "Build PintOS"
+            ],
+            "isBackground": true,
+            "problemMatcher": [
+                {
+                    "pattern": [
+                        {
+                            "regexp": ".",
+                            "file": 1,
+                            "location": 2,
+                            "message": 3
+                        }
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": ".",
+                        "endsPattern": "."
+                    }
+                }
+            ]
+        },
+        {
+            "label": "Configure QEMU Setting",
+            "command": "${workspaceFolder}/utils/vscode-argument-builder",
+            "args": [
+                "${input:filename}",
+                "${input:project}",
+                "${workspaceRoot}",
+                "Run QEMU"
+            ],
+            "dependsOn": [
+                "Update Exec File List"
+            ]
+        },
+        {
+            "label": "Update Exec File List",
+            "command": "${workspaceFolder}/utils/vscode-filename-configurator",
+            "args": [
+                "exec",
+                "${input:project}",
+                "${workspaceFolder}",
+                "filename"
+            ],
+            "dependsOn": [
+                "Build PintOS"
+            ],
+            "dependsOrder": "sequence"
+        },
+        {
+            "label": "Build PintOS",
+            "type": "shell",
+            "options": {
+                "cwd": "${workspaceFolder}/${input:project}"
+            },
+            "command": [
+                "make"
+            ],
+            "args": [
+                "-j$(nproc)"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "project",
+            "description": "[tasks] Enter the project to start.",
+            "type": "pickString",
+            "options": [
+                "threads",
+                "userprog",
+                "vm",
+                "filesys"
+            ],
+            "default": "vm"
+        },
+        {
+            "id": "filename",
+            "description": "[tasks] Pick the user program to start.",
+            "type": "pickString",
+            "options": [
+                "tests/filesys/base/child-syn-read",
+                "tests/filesys/base/child-syn-wrt",
+                "tests/filesys/base/lg-create",
+                "tests/filesys/base/lg-full",
+                "tests/filesys/base/lg-random",
+                "tests/filesys/base/lg-seq-block",
+                "tests/filesys/base/lg-seq-random",
+                "tests/filesys/base/sm-create",
+                "tests/filesys/base/sm-full",
+                "tests/filesys/base/sm-random",
+                "tests/filesys/base/sm-seq-block",
+                "tests/filesys/base/sm-seq-random",
+                "tests/filesys/base/syn-read",
+                "tests/filesys/base/syn-remove",
+                "tests/filesys/base/syn-write",
+                "tests/userprog/args-dbl-space",
+                "tests/userprog/args-many",
+                "tests/userprog/args-multiple",
+                "tests/userprog/args-none",
+                "tests/userprog/args-single",
+                "tests/userprog/bad-jump",
+                "tests/userprog/bad-jump2",
+                "tests/userprog/bad-read",
+                "tests/userprog/bad-read2",
+                "tests/userprog/bad-write",
+                "tests/userprog/bad-write2",
+                "tests/userprog/child-args",
+                "tests/userprog/child-bad",
+                "tests/userprog/child-close",
+                "tests/userprog/child-read",
+                "tests/userprog/child-rox",
+                "tests/userprog/child-simple",
+                "tests/userprog/close-bad-fd",
+                "tests/userprog/close-normal",
+                "tests/userprog/close-twice",
+                "tests/userprog/create-bad-ptr",
+                "tests/userprog/create-bound",
+                "tests/userprog/create-empty",
+                "tests/userprog/create-exists",
+                "tests/userprog/create-long",
+                "tests/userprog/create-normal",
+                "tests/userprog/create-null",
+                "tests/userprog/exec-arg",
+                "tests/userprog/exec-bad-ptr",
+                "tests/userprog/exec-boundary",
+                "tests/userprog/exec-missing",
+                "tests/userprog/exec-once",
+                "tests/userprog/exec-read",
+                "tests/userprog/exit",
+                "tests/userprog/fork-boundary",
+                "tests/userprog/fork-close",
+                "tests/userprog/fork-multiple",
+                "tests/userprog/fork-once",
+                "tests/userprog/fork-read",
+                "tests/userprog/fork-recursive",
+                "tests/userprog/halt",
+                "tests/userprog/multi-child-fd",
+                "tests/userprog/multi-recurse",
+                "tests/userprog/open-bad-ptr",
+                "tests/userprog/open-boundary",
+                "tests/userprog/open-empty",
+                "tests/userprog/open-missing",
+                "tests/userprog/open-normal",
+                "tests/userprog/open-null",
+                "tests/userprog/open-twice",
+                "tests/userprog/read-bad-fd",
+                "tests/userprog/read-bad-ptr",
+                "tests/userprog/read-boundary",
+                "tests/userprog/read-normal",
+                "tests/userprog/read-stdout",
+                "tests/userprog/read-zero",
+                "tests/userprog/rox-child",
+                "tests/userprog/rox-multichild",
+                "tests/userprog/rox-simple",
+                "tests/userprog/wait-bad-pid",
+                "tests/userprog/wait-killed",
+                "tests/userprog/wait-simple",
+                "tests/userprog/wait-twice",
+                "tests/userprog/write-bad-fd",
+                "tests/userprog/write-bad-ptr",
+                "tests/userprog/write-boundary",
+                "tests/userprog/write-normal",
+                "tests/userprog/write-stdin",
+                "tests/userprog/write-zero",
+                "tests/vm/child-inherit",
+                "tests/vm/child-linear",
+                "tests/vm/child-mm-wrt",
+                "tests/vm/child-qsort",
+                "tests/vm/child-qsort-mm",
+                "tests/vm/child-sort",
+                "tests/vm/child-swap",
+                "tests/vm/cow/cow-simple",
+                "tests/vm/lazy-anon",
+                "tests/vm/lazy-file",
+                "tests/vm/mmap-bad-fd",
+                "tests/vm/mmap-bad-fd2",
+                "tests/vm/mmap-bad-fd3",
+                "tests/vm/mmap-bad-off",
+                "tests/vm/mmap-clean",
+                "tests/vm/mmap-close",
+                "tests/vm/mmap-exit",
+                "tests/vm/mmap-inherit",
+                "tests/vm/mmap-kernel",
+                "tests/vm/mmap-misalign",
+                "tests/vm/mmap-null",
+                "tests/vm/mmap-off",
+                "tests/vm/mmap-over-code",
+                "tests/vm/mmap-over-data",
+                "tests/vm/mmap-over-stk",
+                "tests/vm/mmap-overlap",
+                "tests/vm/mmap-read",
+                "tests/vm/mmap-remove",
+                "tests/vm/mmap-ro",
+                "tests/vm/mmap-shuffle",
+                "tests/vm/mmap-twice",
+                "tests/vm/mmap-unmap",
+                "tests/vm/mmap-write",
+                "tests/vm/mmap-zero",
+                "tests/vm/mmap-zero-len",
+                "tests/vm/page-linear",
+                "tests/vm/page-merge-mm",
+                "tests/vm/page-merge-par",
+                "tests/vm/page-merge-seq",
+                "tests/vm/page-merge-stk",
+                "tests/vm/page-parallel",
+                "tests/vm/page-shuffle",
+                "tests/vm/pt-bad-addr",
+                "tests/vm/pt-bad-read",
+                "tests/vm/pt-big-stk-obj",
+                "tests/vm/pt-grow-bad",
+                "tests/vm/pt-grow-stack",
+                "tests/vm/pt-grow-stk-sc",
+                "tests/vm/pt-write-code",
+                "tests/vm/pt-write-code2",
+                "tests/vm/swap-anon",
+                "tests/vm/swap-file",
+                "tests/vm/swap-fork",
+                "tests/vm/swap-iter"
+            ]
+        },
+        {
+            "id": "args",
+            "description": "[tasks] Enter arguments.",
+            "type": "promptString"
+        }
+    ]
+}

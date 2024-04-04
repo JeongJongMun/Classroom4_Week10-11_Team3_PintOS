@@ -21,7 +21,7 @@ def extract_putfiles_paths(makefile_content):
     putfiles_paths = []
 
     pattern = re.compile(r'(\S+)_PUTFILES\s*\+?=\s*(.*)')
-    
+
     for line in makefile_content:
         match = pattern.match(line)
         if match:
@@ -64,12 +64,18 @@ def main():
     dependency = dependencies_dict.get(exec_path)
 
     # Build the command line arguments
-    args = ["--gdb", "-m 20","--fs-disk=10", "--swap-disk=4", "-p", f"{exec_path}:{filename}"]
+    if project == "threads":
+        args = ["--gdb", "--","-q", "-mlfqs", "run", f"{exec_path}:{filename}"]
+    else:
+        args = ["--gdb", "-m 20","--fs-disk=10", "--swap-disk=4", "-p", f"{exec_path}:{filename}"]
+
     if dependency:
         for dep in dependency:
             dep_name = dep.split("/")[-1]
             args.extend(["-p", f"{dep}:{dep_name}"])
-    args.extend(["--", "-q", "-f", "run", f"{filename} "r"${input:args}"])
+
+    if project != "threads":
+        args.extend(["--", "-q", "-f", "run", f"{filename} "r"${input:args}"])
 
     # Print the final command line arguments
     print(args)
@@ -81,6 +87,7 @@ def main():
 
     # Update the specified task with the new arguments
     success = False
+
     for task in config["tasks"]:
         if task["label"] == task_name:
             task["args"] = args

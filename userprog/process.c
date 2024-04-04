@@ -27,10 +27,9 @@
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
-static void __do_fork (void *);
+static void __do_fork (void **);
 void set_userstack(char **argv, int argc, struct intr_frame *if_);
 struct thread *get_child_process(tid_t pid);
-static struct thread *main_thread; // tid 1 thread
 
 /* General process initializer for initd and other process. */
 static void process_init (void) {
@@ -40,13 +39,12 @@ static void process_init (void) {
  *
  * process_create_initd()가 반환되기 전에 새 스레드가 스케줄될 수 있으며 종료될 수도 있다.
  * initd의 스레드 ID를 반환하거나 스레드를 생성할 수 없는 경우 TID_ERROR를 반환한다.
- *
+ * 이 함수를 호출하는 메인 스레드는 initd()의 종료를 기다려야 하고,
  * 이 함수는 한 번만 호출되어야 한다.
  */
 tid_t process_create_initd (const char *file_name) {
 	char *fn_copy;
 	tid_t tid;
-	main_thread = thread_current();
 
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
@@ -60,11 +58,15 @@ tid_t process_create_initd (const char *file_name) {
 	char *save_ptr;
 	strtok_r(file_name, " ",  &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	sema_down(&main_thread->load_sema);
+	tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR) {
 		palloc_free_page(fn_copy);	
 	}
+	struct thread *child = get_child_process(tid);
+	if (child == NULL) {
+		return TID_ERROR;
+	}
+	sema_down(&child->load_sema);
 	return tid;
 }
 
@@ -86,14 +88,13 @@ static void initd(void *f_name) {
 
 /* process_fork - 현재 프로세스를 'name'으로 복제한다.
  * 새 프로세스의 tid를 반환하거나 스레드를 생성할 수 없는 경우 TID_ERROR를 반환한다.
+ * 자식 프로세스는 부모 프로세스의 실행 컨텍스트를 복제받는다.
+ * 자식 프로세스의 복제가 완료될 때까지 부모 프로세스는 대기해야 한다.
  */
 tid_t process_fork(const char *name, struct intr_frame *if_) {
-	// 현재 스레드의 실행 컨텍스트를 복사
-	struct thread *cur = thread_current();
-	memcpy(&cur->parent_if, if_, sizeof(struct intr_frame));
+	void *aux[2] = {thread_current(), if_};
 
-	// 현재 스레드를 새 스레드로 복제
-	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);
+	tid_t tid = thread_create(name, PRI_DEFAULT, __do_fork, aux);
 	struct thread *child = get_child_process(tid);
 	if (child == NULL) {
 		return TID_ERROR;
@@ -144,15 +145,15 @@ static bool duplicate_pte (uint64_t *pte, void *va, void *aux) {
 #endif
 
 /* __do_fork - 부모의 실행 컨텍스트를 복사하는 스레드 함수이다.
- * 힌트: parent->tf는 프로세스의 userland 컨텍스트를 보유하지 않는다.
+ * parent->tf는 프로세스의 userland 컨텍스트를 보유하지 않는다.
  * 즉, 이 함수에 process_fork()의 두 번째 인수를 전달해야 한다.
  */
 static void
-__do_fork (void *aux) {
+__do_fork (void **aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *)aux;
+	struct thread *parent = (struct thread *)aux[0];
 	struct thread *current = thread_current();
-	struct intr_frame *parent_if = &parent->parent_if;
+	struct intr_frame *parent_if = (struct intr_frame *)aux[1];
 	bool succ = true;
 
 	/* 1. Read the cpu context to local stack. */
@@ -185,7 +186,8 @@ __do_fork (void *aux) {
 			current->fdt[idx] = file_duplicate(f);
 		}
 	}
-	if_.R.rax = 0; // 자식 프로세스의 반환 값은 0
+	/* 자식 프로세스의 반환 값은 0 */
+	if_.R.rax = 0;
 	sema_up(&current->load_sema);
 	process_init();
 	/* Finally, switch to the newly created process. */
@@ -230,20 +232,20 @@ int process_exec (void *f_name) {
 	_if.R.rsi = _if.rsp + 8;
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
 
-	/* 로드에 실패하면 종료한다. */
 	palloc_free_page(f_name);
+	/* 로드에 실패하면 종료한다. */
 	if (!success) {
 		return -1;
 	}
 
-	sema_up(&main_thread->load_sema);
+	sema_up(&thread_current()->load_sema);
 	/* 전환된 사용자 프로세스를 시작한다. */
 	do_iret (&_if);
 	NOT_REACHED ();
 }
 
 
-/* process_wait - 스레드 tid가 종료될 때까지 기다렸다가 종료 상태를 반환한다.
+/* process_wait - 자식 프로세스 tid가 종료될 때까지 기다렸다가 자식의 종료 상태를 반환한다.
  * 커널에 의해 종료된 경우 (즉, 예외로 인해 종료된 경우) -1을 반환한다.
  *
  * tid가 유효하지 않거나 호출 프로세스의 자식이 아닌 경우,
@@ -276,9 +278,15 @@ void process_exit (void) {
 
 	palloc_free_multiple(t->fdt, FDT_PAGES);
 	file_close(t->self_file);
+#ifdef VM
+	process_cleanup();
+	hash_destroy(&t->spt.pages, NULL);
+#endif
 	sema_up(&t->wait_sema);
 	sema_down(&t->exit_sema);
+#ifndef VM
 	process_cleanup();
+#endif
 }
 
 /* Free the current process's resources. */
@@ -289,7 +297,6 @@ process_cleanup (void) {
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
 #endif
-
 	uint64_t *pml4;
 	/* Destroy the current process's page directory and switch back
 	 * to the kernel-only page directory. */
@@ -532,9 +539,9 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 }
 
 #ifndef VM
-/* Codes of this block will be ONLY USED DURING project 2.
- * If you want to implement the function for whole project 2, implement it
- * outside of #ifndef macro. */
+/* 이 블록의 코드는 프로젝트 2에서만 사용된다.
+ * 전체 프로젝트 2에 대해 함수를 구현하려면 #ifndef 매크로 외부에 구현하라.
+ */
 
 /* load() helpers. */
 static bool install_page (void *upage, void *kpage, bool writable);
@@ -631,72 +638,91 @@ install_page (void *upage, void *kpage, bool writable) {
 			&& pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-/* From here, codes will be used after project 3.
- * If you want to implement the function for only project 2, implement it on the
- * upper block. */
+/* 여기서부터 프로젝트 3부터 사용되는 코드이다.
+ * 프로젝트 2에만 사용할 함수는 위쪽 블록에 구현하라.
+ */
 
-static bool
-lazy_load_segment (struct page *page, void *aux) {
-	/* TODO: Load the segment from the file */
-	/* TODO: This called when the first page fault occurs on address VA. */
-	/* TODO: VA is available when calling this function. */
+static bool lazy_load_segment(struct page *page, void *aux) {
+	/* 파일에서 세그먼트를 로드한다. 
+	 * 주소 VA에서 첫 번째 Page Fault가 발생할 때 호출된다.
+	 * 이 함수를 호출할 때 VA를 사용 가능하다.
+	 */
+	struct file_info *_aux = (struct file_info *)aux;
+	struct file *file = _aux->file;
+	off_t ofs = _aux->ofs;
+	size_t page_read_bytes = _aux->read_bytes;
+	size_t page_zero_bytes = _aux->zero_bytes;
+
+	/* Load this page. */
+	file_seek(file, ofs);
+
+	if (file_read (file, page->frame->kva, page_read_bytes) != (int)page_read_bytes) {
+		return false;
+	}
+	memset (page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+
+	return true;
 }
 
-/* Loads a segment starting at offset OFS in FILE at address
- * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
- * memory are initialized, as follows:
- *
- * - READ_BYTES bytes at UPAGE must be read from FILE
- * starting at offset OFS.
- *
- * - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
- *
- * The pages initialized by this function must be writable by the
- * user process if WRITABLE is true, read-only otherwise.
- *
- * Return true if successful, false if a memory allocation error
- * or disk read error occurs. */
-static bool
-load_segment (struct file *file, off_t ofs, uint8_t *upage,
+/* FILE의 오프셋 OFS에서 시작하는 세그먼트를 주소 UPAGE에서 로드한다.
+ * 다음과 같이 총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 초기화된다.
+ * - UPAGE에서 READ_BYTES 바이트는 오프셋 OFS에서 시작하는 FILE에서 읽어야 한다.
+ * - UPAGE + READ_BYTES에서 ZERO_BYTES 바이트를 0으로 설정해야 한다.
+ * 이 함수에 의해 초기화된 페이지는 WRITABLE이 true인 경우 사용자 프로세스에서 쓰기 가능해야 하며,
+ * 그렇지 않으면 읽기 전용이어야 한다.
+ * 성공하면 true, 메모리 할당 오류 또는 디스크 읽기 오류가 발생하면 false를 반환한다.
+ */
+static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
 	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
 	while (read_bytes > 0 || zero_bytes > 0) {
-		/* Do calculate how to fill this page.
-		 * We will read PAGE_READ_BYTES bytes from FILE
-		 * and zero the final PAGE_ZERO_BYTES bytes. */
+		/* 이 페이지를 채우는 방법을 계산한다.
+		 * FILE에서 PAGE_READ_BYTES 바이트를 읽고
+		 * 나머지 PAGE_ZERO_BYTES 바이트를 0으로 설정한다. */
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		/* lazy_load_segment에 정보를 전달하기 위해 aux를 설정한다. */
+		struct file_info *fi = malloc(sizeof(struct file_info));
+		fi->file = file;
+		fi->ofs = ofs;
+		fi->read_bytes = page_read_bytes;
+		fi->zero_bytes = page_zero_bytes;
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+					writable, lazy_load_segment, fi))
 			return false;
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
 
 /* setup_stack - USER_STACK에 스택의 PAGE를 생성한다. 성공하면 true를 반환한다.
  */
-static bool
-setup_stack (struct intr_frame *if_) {
-	bool success = false;
+static bool setup_stack(struct intr_frame *if_) {
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* 스택을 stack_bottom에 매핑하고 즉시 페이지를 요구한다.
 	 * 성공하면 그에 따라 rsp를 설정한다.
 	 * 페이지가 스택임을 표시해야 한다.
 	 */
+	if (!vm_alloc_page (VM_ANON | VM_STACK, stack_bottom, true)) {
+		return false;
+	}
+	if (!vm_claim_page(stack_bottom)) {
+		return false;
+	}
+	if_->rsp = USER_STACK;
+	thread_current()->stack_bottom = stack_bottom;
 
-	return success;
+	return true;
 }
 #endif /* VM */
 
