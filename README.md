@@ -17,16 +17,30 @@ The manual is available at https://casys-kaist.github.io/pintos-kaist/.
 <br/>
 
 ## Project #1 : Threads
-All Pass
+- Alarm Clock
+- Priority Scheduling
+- Advanced Scheduler
 
 <br/>
+
+All Pass
 
 ## Project #2 : User Programs
-All Pass
+- Argument Passing
+- User Memory Access
+- System Calls
 
 <br/>
 
-## Project #3 : Virtual Memory
-7 of 141 tests failed.
+All Pass
 
-## 테스트
+## Project #3 : Virtual Memory
+- Memory Management
+- Anonymous Page
+- Stack Growth
+- Memory Mapped Files
+- Swap In/Out
+
+<br/>
+
+7 of 141 tests failed.
