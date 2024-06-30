@@ -1,9 +1,9 @@
 # PintOS Project
 
 크래프톤 정글 4기 과정의 프로젝트인 교육용 OS PintOS 구현 소스 코드를 저장한 레포지토리 입니다.
-<br/>
+<br/><br/>
 Brand new pintos for Operating Systems and Lab (CS330), KAIST, by Youngjin Kwon.
-<br/>
+<br/><br/>
 The manual is available at https://casys-kaist.github.io/pintos-kaist/.
 
 <br/>
@@ -13,7 +13,6 @@ The manual is available at https://casys-kaist.github.io/pintos-kaist/.
 - [Project #1](#project-1--threads)
 - [Project #2](#project-2--user-programs)
 - [Project #3](#project-3--virtual-memory)
-- [테스트](#테스트)
 
 <br/>
 
